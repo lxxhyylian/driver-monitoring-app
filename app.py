@@ -149,7 +149,7 @@ def predict_video_voted(
     return final_out
 
 # ==== Streamlit App ====
-st.title("DRIVER FATIGUE & COGNITIVE DISTRACTION DETECTION USING DEEP LEARNING 🚗")
+st.title("Driver Fatigue & Drunk & Cognitive Distraction Detection 🚗")
 
 uploaded_file = st.file_uploader("Upload a video", type=["mp4","avi","mov","mkv"])
 if uploaded_file is not None:
