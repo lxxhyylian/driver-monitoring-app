@@ -7,6 +7,9 @@ import cv2, os, tempfile
 import numpy as np
 from collections import deque
 from PIL import Image
+import imageio
+
+torch.backends.cudnn.benchmark = True  # tăng tốc GPU
 
 # ==== Model định nghĩa ====
 class SEBlock(nn.Module):
@@ -52,7 +55,8 @@ class CNNTransformer(nn.Module):
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc_in = nn.Linear(512, hidden_dim)
         enc_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads,
-                                               dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu")
+                                               dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu",
+                                               batch_first=True)
         self.transformer = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
         self.attn_pool = AttentionPooling(hidden_dim)
         self.fc_out = nn.Sequential(
@@ -72,7 +76,7 @@ class CNNTransformer(nn.Module):
         feats = self.attn_pool(feats)
         return self.fc_out(feats)
 
-# ==== Load model ====
+# ==== Load model sẵn khi mở app ====
 @st.cache_resource
 def load_model(path, num_classes, device):
     model = CNNTransformer(num_classes=num_classes).to(device)
@@ -80,10 +84,11 @@ def load_model(path, num_classes, device):
     model.eval()
     return model
 
-# ==== Predict video và annotate ====
-from moviepy.editor import VideoFileClip
-import imageio
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+label_names = ["safe_drive","fatigue","drunk","drinking","hair_and_makeup","phonecall","talking_to_passenger"]
+model = load_model("best_model_epoch18.pth", num_classes=len(label_names), device=device)
 
+# ==== Predict video và annotate ====
 def predict_video_voted(
     model, video_path, label_names, device,
     seq_len=30, step=30, img_size=256,
@@ -100,15 +105,13 @@ def predict_video_voted(
 
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     out_path = tmp_out.name
-    writer = imageio.get_writer(out_path, fps=fps)
+    writer = imageio.get_writer(out_path, fps=fps, codec="libx264")
 
-    window_buf, preds = [], []
-    prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
+    window_buf, prob_deque, label_deque = [], deque(maxlen=k), deque(maxlen=k)
 
     while True:
         ok, fr = cap.read()
-        if not ok:
-            break
+        if not ok: break
         window_buf.append(fr)
 
         if len(window_buf) == seq_len:
@@ -138,15 +141,7 @@ def predict_video_voted(
 
     cap.release()
     writer.close()
-
-    # Dùng moviepy re-encode để Streamlit đọc chắc chắn được
-    final_out = out_path.replace(".mp4", "_final.mp4")
-    clip = VideoFileClip(out_path)
-    clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
-    clip.close()
-    os.remove(out_path)  # xoá file gốc, chỉ giữ file chuẩn
-
-    return final_out
+    return out_path
 
 # ==== Streamlit App ====
 st.title("Driver Monitoring Demo 🚗")
@@ -157,11 +152,8 @@ if uploaded_file is not None:
     tfile.write(uploaded_file.read())
     video_path = tfile.name
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    label_names = ["safe_drive","fatigue","drunk","drinking","hair_and_makeup","phonecall","talking_to_passenger"]
-    model = load_model("best_model_epoch18.pth", num_classes=len(label_names), device=device)
-
-    with st.spinner("Loading video..."):
+    with st.spinner("Loading data & predicting..."):
         result_path = predict_video_voted(model, video_path, label_names, device)
 
+    st.success("✅ Prediction finished!")
     st.video(result_path)
