@@ -161,5 +161,6 @@ if uploaded_file is not None:
     model = load_model("best_model_epoch18.pth", num_classes=len(label_names), device=device)
 
     st.write("Predicting...")
-    result = predict_video_voted(model, video_path, label_names, device)
-    st.success(f"Prediction: {result}")
+    result_path = predict_video_voted(model, video_path, label_names, device)
+    st.success("Done! Video with predictions:")
+
