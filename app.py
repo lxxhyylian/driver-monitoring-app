@@ -96,15 +96,25 @@ from PIL import Image
 def predict_video_voted(
     model, video_path, label_names, device,
     seq_len=30, step=30, img_size=256,
-    vote="soft", k=5, stability_margin=0.05
+    vote="soft", k=5
 ):
+    out_dir = "outputs"
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(out_dir, f"{base}_pred.mp4")
+
     cap = cv2.VideoCapture(video_path)
+    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+
     tfm = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor()
     ])
-    preds = []
+
     window_buf = []
     prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
 
@@ -129,20 +139,23 @@ def predict_video_voted(
             if vote == "hard":
                 vals, counts = np.unique(label_deque, return_counts=True)
                 voted_idx = int(vals[np.argmax(counts)])
+                voted_conf = float(np.mean([p[voted_idx] for p in prob_deque]))
             else:
                 avg_prob = np.mean(np.stack(prob_deque, axis=0), axis=0)
                 voted_idx = int(np.argmax(avg_prob))
+                voted_conf = float(avg_prob[voted_idx])
 
-            preds.append(voted_idx)
+            text = f"{label_names[voted_idx]} ({voted_conf:.2f})"
+            for f in window_buf:
+                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                            1.2, (0,255,0), 3, cv2.LINE_AA)
+                out.write(f)
+
             window_buf = window_buf[step:]
 
     cap.release()
-    if preds:
-        final_pred = np.bincount(preds).argmax()
-        return label_names[final_pred]
-    else:
-        return "No prediction"
-
+    out.release()
+    return out_path
 
 # ==== Streamlit App ====
 st.title("Driver Monitoring Demo 🚗")
@@ -162,6 +175,8 @@ if uploaded_file is not None:
 
     st.write("Predicting...")
     result_path = predict_video_voted(model, video_path, label_names, device)
+
     st.success("Done! Video with predictions:")
-    st.video(result_path)
+    with open(result_path, "rb") as f:
+        st.video(f.read())
 
