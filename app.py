@@ -81,9 +81,13 @@ def load_model(path, num_classes, device):
     return model
 
 # ==== Predict video và annotate ====
-def predict_video_voted(model, video_path, label_names, device,
-                        seq_len=30, step=30, img_size=256,
-                        vote="soft", k=5):
+from moviepy.editor import VideoFileClip
+
+def predict_video_voted(
+    model, video_path, label_names, device,
+    seq_len=30, step=30, img_size=256,
+    vote="soft", k=5
+):
     tfm = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((img_size, img_size)),
@@ -95,7 +99,7 @@ def predict_video_voted(model, video_path, label_names, device,
 
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     out_path = tmp_out.name
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"avc1"), fps, (width, height))
 
     window_buf, preds = [], []
     prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
@@ -132,7 +136,15 @@ def predict_video_voted(model, video_path, label_names, device,
 
     cap.release()
     out.release()
-    return out_path
+
+    # 🔄 Dùng moviepy re-encode để Streamlit đọc chắc chắn được
+    final_out = out_path.replace(".mp4", "_final.mp4")
+    clip = VideoFileClip(out_path)
+    clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
+    clip.close()
+    os.remove(out_path)  # xoá file gốc, chỉ giữ file chuẩn
+
+    return final_out
 
 # ==== Streamlit App ====
 st.title("Driver Monitoring Demo 🚗")
