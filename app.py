@@ -163,4 +163,5 @@ if uploaded_file is not None:
     st.write("Predicting...")
     result_path = predict_video_voted(model, video_path, label_names, device)
     st.success("Done! Video with predictions:")
+    st.video(result_path)
 
