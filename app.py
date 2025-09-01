@@ -98,10 +98,8 @@ def predict_video_voted(
     seq_len=30, step=30, img_size=256,
     vote="soft", k=5
 ):
-    out_dir = "outputs"
-    os.makedirs(out_dir, exist_ok=True)
-    base = os.path.splitext(os.path.basename(video_path))[0]
-    out_path = os.path.join(out_dir, f"{base}_pred.mp4")
+    tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    out_path = tmpfile.name
 
     cap = cv2.VideoCapture(video_path)
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
