@@ -82,6 +82,7 @@ def load_model(path, num_classes, device):
 
 # ==== Predict video và annotate ====
 from moviepy.editor import VideoFileClip
+import imageio
 
 def predict_video_voted(
     model, video_path, label_names, device,
@@ -99,14 +100,15 @@ def predict_video_voted(
 
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     out_path = tmp_out.name
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"avc1"), fps, (width, height))
+    writer = imageio.get_writer(out_path, fps=fps)
 
     window_buf, preds = [], []
     prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
 
     while True:
         ok, fr = cap.read()
-        if not ok: break
+        if not ok:
+            break
         window_buf.append(fr)
 
         if len(window_buf) == seq_len:
@@ -131,13 +133,13 @@ def predict_video_voted(
             for f in window_buf[:step]:
                 cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX,
                             1.2, (0,255,0), 3, cv2.LINE_AA)
-                out.write(f)
+                writer.append_data(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
             window_buf = window_buf[step:]
 
     cap.release()
-    out.release()
+    writer.close()
 
-    # 🔄 Dùng moviepy re-encode để Streamlit đọc chắc chắn được
+    # Dùng moviepy re-encode để Streamlit đọc chắc chắn được
     final_out = out_path.replace(".mp4", "_final.mp4")
     clip = VideoFileClip(out_path)
     clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
