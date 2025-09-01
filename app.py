@@ -129,7 +129,7 @@ def predict_video_voted(
                 avg_prob = np.mean(np.stack(prob_deque), axis=0)
                 voted_idx = int(np.argmax(avg_prob))
 
-            text = f"{label_names[voted_idx]}"
+            text = f"{label_names[voted_idx]} ({avg_prob[voted_idx]:.2f})"
             for f in window_buf[:step]:
                 cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX,
                             1.2, (0,255,0), 3, cv2.LINE_AA)
