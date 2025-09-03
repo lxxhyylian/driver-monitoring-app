@@ -165,8 +165,6 @@
 
 #     st.video(result_path)
 
-
-
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -258,6 +256,13 @@ torch.backends.cudnn.benchmark = True
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 VID_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
 
+# Fixed defaults
+IMG_SIZE = 256
+SEQ_LEN = 30
+STEP = 30
+VOTE = "hard"
+BATCH_SIZE = 16
+
 # =========================
 # Cached resources
 # =========================
@@ -285,12 +290,12 @@ def warmup_model(model, device, seq_len: int, img_size: int):
     st.session_state["warmed_up"] = True
 
 # =========================
-# Video prediction (giữ logic cũ, thêm tham số)
+# Video prediction
 # =========================
 def predict_video_voted(
     model, video_path, label_names, device,
-    seq_len=30, step=30, img_size=256,
-    vote="soft", k=5
+    seq_len=SEQ_LEN, step=STEP, img_size=IMG_SIZE,
+    vote=VOTE, k=5
 ):
     tfm = get_transform(img_size)
     cap = cv2.VideoCapture(video_path)
@@ -322,14 +327,10 @@ def predict_video_voted(
             label_deque.append(int(np.argmax(prob_vec)))
             prob_deque.append(prob_vec)
 
-            if vote == "hard":
-                vals, counts = np.unique(label_deque, return_counts=True)
-                voted_idx = int(vals[np.argmax(counts)])
-                conf = float(last_prob_vec[voted_idx]) if last_prob_vec is not None else 0.0
-            else:
-                avg_prob = np.mean(np.stack(prob_deque), axis=0)
-                voted_idx = int(np.argmax(avg_prob))
-                conf = float(avg_prob[voted_idx])
+            # always hard vote
+            vals, counts = np.unique(label_deque, return_counts=True)
+            voted_idx = int(vals[np.argmax(counts)])
+            conf = float(last_prob_vec[voted_idx]) if last_prob_vec is not None else 0.0
 
             text = f"{label_names[voted_idx]} ({conf:.2f})"
             for f in window_buf[:step]:
@@ -341,7 +342,6 @@ def predict_video_voted(
     cap.release()
     writer.close()
 
-    # Re-encode để Streamlit đọc chắc chắn được
     final_out = out_path.replace(".mp4", "_final.mp4")
     clip = VideoFileClip(out_path)
     clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
@@ -354,27 +354,21 @@ def predict_video_voted(
 # =========================
 def predict_images_batch(
     model, pil_images: List[Image.Image], label_names, device,
-    img_size=256, seq_len=30, batch_size=16
+    img_size=IMG_SIZE, seq_len=SEQ_LEN, batch_size=BATCH_SIZE
 ):
-    """
-    Trả về:
-      - preds: List[int]
-      - probs: List[float]
-    """
     tfm = get_transform(img_size)
-    tensors = [tfm(img).unsqueeze(0) for img in pil_images]  # list of [1,3,H,W]
-    tensors = torch.cat(tensors, dim=0)                      # [N,3,H,W]
-    # replicate theo seq_len
-    tensors_seq = tensors.unsqueeze(1).repeat(1, seq_len, 1, 1, 1)  # [N,T,3,H,W]
+    tensors = [tfm(img).unsqueeze(0) for img in pil_images]
+    tensors = torch.cat(tensors, dim=0)  # [N,3,H,W]
+    tensors_seq = tensors.unsqueeze(1).repeat(1, seq_len, 1, 1, 1)
 
     preds, probs = [], []
     model.eval()
     with torch.no_grad():
         for i in range(0, tensors_seq.size(0), batch_size):
             batch = tensors_seq[i:i+batch_size].to(device)
-            logits = model(batch)                             # [B, C]
-            prob = torch.softmax(logits, dim=1)              # [B, C]
-            pred = torch.argmax(prob, dim=1)                 # [B]
+            logits = model(batch)
+            prob = torch.softmax(logits, dim=1)
+            pred = torch.argmax(prob, dim=1)
             preds.extend(pred.detach().cpu().tolist())
             probs.extend(prob.max(dim=1).values.detach().cpu().tolist())
     return preds, probs
@@ -384,21 +378,9 @@ def predict_images_batch(
 # =========================
 st.title("Driver Fatigue/Drunk/Distraction Detection 🚗")
 
-# Sidebar options
-st.sidebar.header("Options")
-img_size = st.sidebar.slider("Image size", 128, 512, 256, step=32)
-seq_len  = st.sidebar.slider("Sequence length (T)", 8, 60, 30, step=2)
-step     = st.sidebar.slider("Video step (frames to advance)", 1, 30, 30)
-vote     = st.sidebar.selectbox("Voting (video)", ["soft", "hard"])
-bs_img   = st.sidebar.slider("Image batch size", 4, 64, 16, step=4)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(f"Device: **{DEVICE.type.upper()}**")
-
-# Preload model & warmup
 with st.spinner("Loading model..."):
     model = load_model(MODEL_PATH, num_classes=len(LABEL_NAMES), device=DEVICE)
-    warmup_model(model, DEVICE, seq_len=seq_len, img_size=img_size)
+    warmup_model(model, DEVICE, seq_len=SEQ_LEN, img_size=IMG_SIZE)
 
 uploaded_files = st.file_uploader(
     "Upload images and/or videos",
@@ -407,7 +389,6 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    # Phân loại file
     image_files, video_files = [], []
     for f in uploaded_files:
         name = f.name.lower()
@@ -416,22 +397,17 @@ if uploaded_files:
         elif name.endswith(VID_EXTS):
             video_files.append(f)
 
-    # ===== Images =====
+    # Images
     if image_files:
-        st.subheader(f"Images ({len(image_files)})")
+        st.subheader(f"Uploaded Images ({len(image_files)})")
         pil_images, titles = [], []
         for f in image_files:
             img = Image.open(f).convert("RGB")
             pil_images.append(img)
-            titles.append(f.name)
 
         with st.spinner("Predicting images..."):
-            preds, probs = predict_images_batch(
-                model, pil_images, LABEL_NAMES, DEVICE,
-                img_size=img_size, seq_len=seq_len, batch_size=bs_img
-            )
+            preds, probs = predict_images_batch(model, pil_images, LABEL_NAMES, DEVICE)
 
-        # Hiển thị dạng grid
         cols_per_row = 4
         rows = math.ceil(len(pil_images) / cols_per_row)
         idx = 0
@@ -441,14 +417,14 @@ if uploaded_files:
                 if idx >= len(pil_images): break
                 c.image(
                     pil_images[idx],
-                    caption=f"{titles[idx]}\nPred: {LABEL_NAMES[preds[idx]]} ({probs[idx]:.2f})",
+                    caption=f"{titles[idx]}\nPrediction: {LABEL_NAMES[preds[idx]]} ({probs[idx]:.2f})",
                     use_container_width=True
                 )
                 idx += 1
 
-    # ===== Videos =====
+    # Videos
     if video_files:
-        st.subheader(f"Videos ({len(video_files)})")
+        st.subheader(f"Uploaded Videos ({len(video_files)})")
         for i, vf in enumerate(video_files, 1):
             st.write(f"**{i}. {vf.name}**")
             tfile = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(vf.name)[1])
@@ -456,12 +432,8 @@ if uploaded_files:
             video_path = tfile.name
 
             with st.spinner("Processing video..."):
-                result_path = predict_video_voted(
-                    model, video_path, LABEL_NAMES, DEVICE,
-                    seq_len=seq_len, step=step, img_size=img_size, vote=vote
-                )
+                result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
             st.video(result_path)
 
 else:
-    st.info("You can upload images and videos")
-
+    st.info("Please upload one or more **images** and/or **videos**.")
