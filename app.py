@@ -7,7 +7,7 @@ import cv2, os, tempfile, math, hashlib, gc
 import numpy as np
 from collections import deque
 from PIL import Image
-from typing import List, Tuple
+from typing import List
 from moviepy.editor import VideoFileClip
 import imageio
 from io import BytesIO
@@ -86,7 +86,6 @@ STEP = 30
 VOTE = "hard"
 BATCH_SIZE = 16
 PAGE_SIZE = 4
-NEW_BATCH_DRAW_COLS = 4
 
 if "processed_images" not in st.session_state:
     st.session_state.processed_images = {}
@@ -169,42 +168,40 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     os.remove(out_path)
     return final_out
 
-def predict_bytes_batch(model, entries: List[Tuple[str,str,bytes]], label_names, device, img_size=IMG_SIZE, seq_len=SEQ_LEN, batch_size=BATCH_SIZE):
-    tfm = get_transform(img_size)
-    preds, probs, valid = [], [], []
-    model.eval()
+def predict_images_in_batches(entries):
+    tfm = get_transform(IMG_SIZE)
     i = 0
     while i < len(entries):
-        sub = entries[i:i+batch_size]
-        xs = []
-        keep_idx = []
-        for j, (_, name, b) in enumerate(sub):
+        sub = entries[i:i+BATCH_SIZE]
+        imgs = []
+        valids = []
+        for key, name, b in sub:
             try:
                 img = Image.open(BytesIO(b))
                 img.verify()
                 img = Image.open(BytesIO(b)).convert("RGB")
-                xs.append(tfm(img).unsqueeze(0))
-                keep_idx.append(j)
+                imgs.append(tfm(img).unsqueeze(0))
+                valids.append((key, name, b))
             except Exception:
                 st.warning(f"Skipped invalid image: {name}")
-        if xs:
-            x = torch.cat(xs, dim=0).to(device)
+        if imgs:
+            x = torch.cat(imgs, dim=0).to(DEVICE)
             with torch.no_grad():
-                xb = x.unsqueeze(1).expand(-1, seq_len, -1, -1, -1).contiguous()
+                xb = x.unsqueeze(1).expand(-1, SEQ_LEN, -1, -1, -1).contiguous()
                 logits = model(xb)
                 prob = torch.softmax(logits, dim=1)
-                pred = torch.argmax(prob, dim=1)
-                preds.extend(pred.detach().cpu().tolist())
-                probs.extend(prob.max(dim=1).values.detach().cpu().tolist())
-            del x, xb, logits, prob, pred
+                pred = torch.argmax(prob, dim=1).detach().cpu().tolist()
+                pmax = prob.max(dim=1).values.detach().cpu().tolist()
+            del x, xb, logits, prob
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()
-            valid.extend([sub[k] for k in keep_idx])
-        i += batch_size
-        yield valid, preds, probs
+            for (key, name, b), y, s in zip(valids, pred, pmax):
+                st.session_state.processed_images[key] = {"name": name, "bytes": b, "pred": int(y), "prob": float(s)}
+                st.session_state.image_order.insert(0, key)
+        i += BATCH_SIZE
 
-def images_paginator(total, page_size):
+def paginate(total, page_size):
     total_pages = max(1, math.ceil(total / page_size))
     col1, col2, col3 = st.columns([1,1,6])
     with col1:
@@ -248,44 +245,14 @@ if uploaded_files:
             if key not in st.session_state.processed_videos:
                 new_video_entries.append((key, f.name, f.getvalue()))
 
-new_results_container = st.container()
-
 if new_image_entries:
     st.session_state.images_page = 1
-    prog = st.progress(0.0)
-    done = 0
-    total = len(new_image_entries)
-    grid_cont = new_results_container.container()
-    batch_iter = predict_bytes_batch(model, new_image_entries, LABEL_NAMES, DEVICE)
-    for valid, preds, probs in batch_iter:
-        delta = len(valid) - len(st.session_state.image_order[:0])
-        if delta > 0:
-            pass
-        new_cards = []
-        while len(new_cards) < len(valid) - done:
-            idx = done + len(new_cards)
-            (key, name, b) = valid[idx]
-            p = preds[idx]
-            pr = probs[idx]
-            st.session_state.processed_images[key] = {"name": name, "bytes": b, "pred": int(p), "prob": float(pr)}
-            st.session_state.image_order.insert(0, key)
-            new_cards.append(key)
-        done = len(valid)
-        if new_cards:
-            cols = grid_cont.columns(min(NEW_BATCH_DRAW_COLS, len(new_cards)))
-            r = 0
-            for k in new_cards:
-                item = st.session_state.processed_images[k]
-                img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-                cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
-                cols[r % len(cols)].image(img, caption=cap, width="stretch")
-                r += 1
-        prog.progress(min(1.0, done / total))
-    prog.empty()
+    predict_images_in_batches(new_image_entries)
 
 if new_video_entries:
     st.session_state.images_page = 1
-    for key, name, b in new_video_entries:
+    vprog = st.progress(0.0)
+    for i, (key, name, b) in enumerate(new_video_entries, 1):
         suffix = os.path.splitext(name)[1]
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
@@ -293,23 +260,19 @@ if new_video_entries:
         result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         st.session_state.video_order.insert(0, key)
+        vprog.progress(i/len(new_video_entries))
+    vprog.empty()
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
-    start, end = images_paginator(len(st.session_state.image_order), PAGE_SIZE)
-    subset_keys = st.session_state.image_order[start:end]
-    n = len(subset_keys)
-    i = 0
-    while i < n:
-        cols = st.columns(4 if n - i >= 4 else (n - i))
-        for c in cols:
-            item = st.session_state.processed_images[subset_keys[i]]
-            img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-            cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
-            c.image(img, caption=cap, width="stretch")
-            i += 1
-            if i >= n:
-                break
+    start, end = paginate(len(st.session_state.image_order), PAGE_SIZE)
+    keys = st.session_state.image_order[start:end]
+    cols = st.columns(4 if len(keys) == 4 else len(keys) if len(keys) > 0 else 1)
+    for idx, key in enumerate(keys):
+        item = st.session_state.processed_images[key]
+        img = Image.open(BytesIO(item["bytes"])).convert("RGB")
+        cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
+        cols[idx % len(cols)].image(img, caption=cap, width="stretch")
 
 if st.session_state.video_order:
     st.subheader(f"Videos ({len(st.session_state.video_order)})")
@@ -319,4 +282,4 @@ if st.session_state.video_order:
         st.video(item["result_path"])
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
-    st.info("You can upload one or more images or videos.")
+    st.info("Upload image or video")
