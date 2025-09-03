@@ -85,7 +85,7 @@ SEQ_LEN = 30
 STEP = 30
 VOTE = "hard"
 BATCH_SIZE = 16
-PAGE_SIZE = 24
+PAGE_SIZE = 4
 NEW_BATCH_DRAW_COLS = 4
 
 if "processed_images" not in st.session_state:
