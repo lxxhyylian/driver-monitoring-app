@@ -85,6 +85,7 @@ SEQ_LEN = 30
 STEP = 30
 VOTE = "hard"
 BATCH_SIZE = 16
+PAGE_SIZE = 24
 
 if "processed_images" not in st.session_state:
     st.session_state.processed_images = {}
@@ -94,6 +95,8 @@ if "processed_videos" not in st.session_state:
     st.session_state.processed_videos = {}
 if "video_order" not in st.session_state:
     st.session_state.video_order = []
+if "images_page" not in st.session_state:
+    st.session_state.images_page = 1
 
 def file_key(uploaded_file) -> str:
     data = uploaded_file.getvalue()
@@ -129,7 +132,7 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     out_path = tmp_out.name
-    writer = imageio.get_writer(out_path, fps=fps)
+    writer = imageio.get_writer(out_path, fps=fps, macro_block_size=None)
     window_buf = []
     prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
     last_prob_vec = None
@@ -168,19 +171,35 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
 def predict_images_batch(model, pil_images: List[Image.Image], label_names, device, img_size=IMG_SIZE, seq_len=SEQ_LEN, batch_size=BATCH_SIZE):
     tfm = get_transform(img_size)
     tensors = [tfm(img).unsqueeze(0) for img in pil_images]
-    tensors = torch.cat(tensors, dim=0)
-    tensors_seq = tensors.unsqueeze(1).repeat(1, seq_len, 1, 1, 1)
+    x = torch.cat(tensors, dim=0)
     preds, probs = [], []
     model.eval()
     with torch.no_grad():
-        for i in range(0, tensors_seq.size(0), batch_size):
-            batch = tensors_seq[i:i+batch_size].to(device)
-            logits = model(batch)
+        for i in range(0, x.size(0), batch_size):
+            xb = x[i:i+batch_size].to(device)
+            xb_seq = xb.unsqueeze(1).expand(-1, seq_len, -1, -1, -1).contiguous()
+            logits = model(xb_seq)
             prob = torch.softmax(logits, dim=1)
             pred = torch.argmax(prob, dim=1)
             preds.extend(pred.detach().cpu().tolist())
             probs.extend(prob.max(dim=1).values.detach().cpu().tolist())
     return preds, probs
+
+def images_paginator(total, page_size):
+    total_pages = max(1, math.ceil(total / page_size))
+    st.write(f"Images page {st.session_state.images_page}/{total_pages}")
+    col_a, col_b, col_c = st.columns([1,1,6])
+    with col_a:
+        if st.button("◀ Prev", disabled=st.session_state.images_page <= 1):
+            st.session_state.images_page = max(1, st.session_state.images_page - 1)
+            st.experimental_rerun()
+    with col_b:
+        if st.button("Next ▶", disabled=st.session_state.images_page >= total_pages):
+            st.session_state.images_page = min(total_pages, st.session_state.images_page + 1)
+            st.experimental_rerun()
+    start = (st.session_state.images_page - 1) * page_size
+    end = min(total, start + page_size)
+    return start, end
 
 st.title("Driver Fatigue/Drunk/Distraction Detection 🚗")
 
@@ -238,20 +257,18 @@ if new_video_entries:
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
-    display_items = []
-    for key in st.session_state.image_order:
-        item = st.session_state.processed_images[key]
-        img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        caption = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
-        display_items.append((img, caption))
-    n = len(display_items)
+    start, end = images_paginator(len(st.session_state.image_order), PAGE_SIZE)
+    subset_keys = st.session_state.image_order[start:end]
+    n = len(subset_keys)
     i = 0
     while i < n:
         cols_this_row = min(4, n - i)
         cols = st.columns(cols_this_row)
         for c in cols:
-            img, cap = display_items[i]
-            c.image(img, caption=cap, use_container_width=True)
+            item = st.session_state.processed_images[subset_keys[i]]
+            img = Image.open(BytesIO(item["bytes"])).convert("RGB")
+            cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
+            c.image(img, caption=cap, width="stretch")
             i += 1
             if i >= n:
                 break
@@ -264,4 +281,4 @@ if st.session_state.video_order:
         st.video(item["result_path"])
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
-    st.info("Please upload one or more images and/or videos.")
+    st.info("You can upload one or more images or videos.")
