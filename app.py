@@ -417,7 +417,7 @@ if uploaded_files:
                 if idx >= len(pil_images): break
                 c.image(
                     pil_images[idx],
-                    caption=f"{titles[idx]}\nPrediction: {LABEL_NAMES[preds[idx]]} ({probs[idx]:.2f})",
+                    caption=f"Prediction: {LABEL_NAMES[preds[idx]]} ({probs[idx]:.2f})",
                     use_container_width=True
                 )
                 idx += 1
