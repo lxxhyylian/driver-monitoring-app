@@ -271,7 +271,7 @@ if st.session_state.image_order:
     for idx, key in enumerate(keys):
         item = st.session_state.processed_images[key]
         img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        cap = f"<h4 style='text-align: center;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
+        cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
         cols[idx % len(cols)].image(img, caption=cap, width="stretch")
 
 if st.session_state.video_order:
