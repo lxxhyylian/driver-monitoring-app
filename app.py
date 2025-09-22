@@ -207,16 +207,19 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     os.remove(out_path)
     return final_out
 
-def preview_video_realtime(model, video_path, label_names, device, seq_len=30, step=30, img_size=256):
+def preview_video_realtime(model, video_path, label_names, device, seq_len=30, step=30, img_size=256, frame_skip=3):
     tfm = get_transform(img_size)
     cap = cv2.VideoCapture(video_path)
     window_buf = []
     placeholder = st.empty()
-
+    frame_count = 0
     while True:
         ok, fr = cap.read()
         if not ok:
             break
+        frame_count += 1
+        if frame_count % frame_skip != 0:
+            continue
         window_buf.append(fr)
         if len(window_buf) == seq_len:
             rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
@@ -228,11 +231,9 @@ def preview_video_realtime(model, video_path, label_names, device, seq_len=30, s
             pred_idx = int(np.argmax(prob_vec))
             conf = float(prob_vec[pred_idx])
             text = f"{label_names[pred_idx]} ({conf:.2f})"
-
             for f in window_buf[:step]:
-                cv2.putText(f, text, (30,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
                 placeholder.image(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), channels="RGB")
-
             window_buf = window_buf[step:]
     cap.release()
 
@@ -411,14 +412,14 @@ if new_video_entries:
         # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         # st.session_state.video_order.insert(0, key)
+        # if st.button(f"Download processed {name}"):
+        #     out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
+        #     with open(out_path, "rb") as f:
+        #         st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
 
         st.info(f"Previewing {name}...")
         preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
 
-        if st.button(f"Download processed {name}"):
-            out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
-            with open(out_path, "rb") as f:
-                st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
 
         # predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
         # chunks = predict_video_in_chunks(model, video_path, LABEL_NAMES, DEVICE, chunk_ratio=0.5)
