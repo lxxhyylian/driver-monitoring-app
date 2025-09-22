@@ -243,6 +243,57 @@ def predict_video_realtime(model, video_path, label_names, device, seq_len=SEQ_L
             window_buf = window_buf[step:]
     cap.release()
 
+def predict_video_in_chunks(model, video_path, label_names, device, chunk_ratio=0.5, seq_len=30, img_size=256):
+    tfm = get_transform(img_size)
+    cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
+    chunk_size = int(total_frames * chunk_ratio)
+
+    chunks = []
+    frames = []
+    frame_idx = 0
+
+    while True:
+        ok, fr = cap.read()
+        if not ok:
+            break
+        frames.append(fr)
+        frame_idx += 1
+
+        if frame_idx % chunk_size == 0 or frame_idx == total_frames:
+            tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            out_path = tmp_out.name
+            writer = imageio.get_writer(out_path, fps=fps, macro_block_size=None)
+
+            window_buf = deque(maxlen=seq_len)
+
+            for f in frames:
+                window_buf.append(f)
+                if len(window_buf) == seq_len:
+                    rgb = [cv2.cvtColor(x, cv2.COLOR_BGR2RGB) for x in window_buf]
+                    tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
+                    batch = torch.stack(tens, dim=1).to(device)
+                    with torch.no_grad():
+                        logits = model(batch)
+                        prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
+
+                    pred_idx = int(np.argmax(prob_vec))
+                    conf = float(prob_vec[pred_idx])
+                    text = f"{label_names[pred_idx]} ({conf:.2f})"
+
+                    disp = window_buf[-1].copy()
+                    cv2.putText(disp, text, (30, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                    writer.append_data(cv2.cvtColor(disp, cv2.COLOR_BGR2RGB))
+
+            writer.close()
+            chunks.append(out_path)
+            frames = []
+
+    cap.release()
+    return chunks
+
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
     i = 0
@@ -373,7 +424,7 @@ if uploaded_files:
 if new_image_entries:
     st.session_state.images_page = 1
     predict_images_in_batches(new_image_entries, model)
-    check_and_cleanup(0.6)
+    check_and_cleanup()
 
 if new_video_entries:
     st.session_state.images_page = 1
@@ -386,10 +437,13 @@ if new_video_entries:
         # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         # st.session_state.video_order.insert(0, key)
-        predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
+        # predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
+        chunks = predict_video_in_chunks(model, video_path, LABEL_NAMES, DEVICE, chunk_ratio=0.5)
+        for c in chunks:
+            st.video(c)
         vprog.progress(i/len(new_video_entries))
     vprog.empty()
-    check_and_cleanup(0.6)
+    check_and_cleanup()
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
