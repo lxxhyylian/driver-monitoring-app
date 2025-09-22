@@ -11,6 +11,21 @@ from moviepy.editor import VideoFileClip
 import imageio
 from io import BytesIO
 import mediapipe as mp
+import psutil, gc, torch
+
+def check_and_cleanup(threshold: float = 0.85):
+    mem = psutil.virtual_memory()
+    usage = mem.percent / 100.0
+    if usage > threshold:
+        if "image_order" in st.session_state and st.session_state.image_order:
+            oldest = st.session_state.image_order.pop()
+            st.session_state.processed_images.pop(oldest, None)
+        if "video_order" in st.session_state and st.session_state.video_order:
+            oldest = st.session_state.video_order.pop()
+            st.session_state.processed_videos.pop(oldest, None)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
@@ -23,7 +38,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
         face_area = bw * bh
-        if face_area >= 0.9:
+        if face_area >= 0.94:
             return img
         x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
@@ -305,10 +320,12 @@ if uploaded_files:
 
 if new_image_entries:
     st.session_state.images_page = 1
+    check_and_cleanup()
     predict_images_in_batches(new_image_entries, model)
 
 if new_video_entries:
     st.session_state.images_page = 1
+    check_and_cleanup()
     vprog = st.progress(0.0)
     for i, (key, name, b) in enumerate(new_video_entries, 1):
         suffix = os.path.splitext(name)[1]
