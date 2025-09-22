@@ -105,7 +105,7 @@ VID_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
 IMG_SIZE = 256
 SEQ_LEN = 30
 STEP = 30
-BATCH_SIZE = 16
+BATCH_SIZE = 4
 PAGE_SIZE = 3
 
 if "processed_images" not in st.session_state:
