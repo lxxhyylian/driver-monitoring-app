@@ -61,14 +61,16 @@ class AttentionPooling(nn.Module):
 class CNNTransformer(nn.Module):
     def __init__(self, num_classes, seq_len=30, hidden_dim=256, num_heads=4, num_layers=1, pretrained=True, freeze_until=10):
         super().__init__()
-        mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT if pretrained else None)
+        mobilenet = models.mobilenet_v2(pretrained=pretrained)
         self.cnn = mobilenet.features
-        for i, child in enumerate(self.cnn.children()):
-            if i < freeze_until:
-                for p in child.parameters():
-                    p.requires_grad = False
+        child_counter = 0
+        for child in self.cnn.children():
+            if child_counter < freeze_until:
+                for param in child.parameters():
+                    param.requires_grad = False
+            child_counter += 1
         self.head = nn.Sequential(
-            nn.Conv2d(1280, 512, 3, 1, 1, bias=False),
+            nn.Conv2d(1280, 512, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             SEBlock(512),
@@ -76,8 +78,11 @@ class CNNTransformer(nn.Module):
         )
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc_in = nn.Linear(512, hidden_dim)
-        enc_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu")
-        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=num_heads,
+            dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu"
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.attn_pool = AttentionPooling(hidden_dim)
         self.fc_out = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
@@ -94,36 +99,8 @@ class CNNTransformer(nn.Module):
         feats = self.fc_in(feats)
         feats = self.transformer(feats)
         feats = self.attn_pool(feats)
-        return self.fc_out(feats)
-
-class CNNClassifier(nn.Module):
-    def __init__(self, num_classes, hidden_dim=256, pretrained=True, freeze_until=10):
-        super().__init__()
-        mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT if pretrained else None)
-        self.cnn = mobilenet.features
-        for i, child in enumerate(self.cnn.children()):
-            if i < freeze_until:
-                for p in child.parameters():
-                    p.requires_grad = False
-        self.head = nn.Sequential(
-            nn.Conv2d(1280, 512, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            SEBlock(512),
-            nn.Dropout(0.3)
-        )
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(512, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim, num_classes)
-        )
-    def forward(self, x):
-        feats = self.cnn(x)
-        feats = self.head(feats)
-        feats = self.gap(feats).view(x.size(0), -1)
-        return self.fc(feats)
+        out = self.fc_out(feats)
+        return out
 
 MODEL_PATH = "best_model_epoch18.pth"
 LABEL_NAMES = ["safe_drive","fatigue","drunk","drinking","hair_and_makeup","phonecall","talking_to_passenger"]
@@ -154,15 +131,12 @@ def file_key(uploaded_file) -> str:
     return f"{uploaded_file.name}|{md5}"
 
 @st.cache_resource(show_spinner=False)
-def load_models(path: str, num_classes: int, device: torch.device):
-    model_video = CNNTransformer(num_classes=num_classes).to(device)
-    model_img = CNNClassifier(num_classes=num_classes).to(device)
+def load_model(path: str, num_classes: int, device: torch.device):
+    model = CNNTransformer(num_classes=num_classes).to(device)
     state = torch.load(path, map_location=device)
-    model_video.load_state_dict(state, strict=False)
-    model_img.load_state_dict(state, strict=False)
-    model_video.eval()
-    model_img.eval()
-    return model_video, model_img
+    model.load_state_dict(state)
+    model.eval()
+    return model
 
 @st.cache_resource(show_spinner=False)
 def get_transform(img_size: int):
@@ -171,14 +145,11 @@ def get_transform(img_size: int):
         transforms.ToTensor()
     ])
 
-def warmup_model(model, device, seq_len: int, img_size: int, is_video=True):
+def warmup_model(model, device, seq_len: int, img_size: int):
     if "warmed_up" in st.session_state:
         return
     with torch.inference_mode():
-        if is_video:
-            dummy = torch.zeros(1, seq_len, 3, img_size, img_size, device=device)
-        else:
-            dummy = torch.zeros(1, 3, img_size, img_size, device=device)
+        dummy = torch.zeros(1, seq_len, 3, img_size, img_size, device=device)
         _ = model(dummy)
     st.session_state["warmed_up"] = True
 
@@ -224,7 +195,7 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     os.remove(out_path)
     return final_out
 
-def predict_images_in_batches(entries, model_img):
+def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
     i = 0
     while i < len(entries):
@@ -244,11 +215,12 @@ def predict_images_in_batches(entries, model_img):
         if imgs:
             x = torch.cat(imgs, dim=0).to(DEVICE)
             with torch.no_grad():
-                logits = model_img(x)
+                xb = x.unsqueeze(1).expand(-1, SEQ_LEN, -1, -1, -1).contiguous()
+                logits = model(xb)
                 prob = torch.softmax(logits, dim=1)
                 pred = torch.argmax(prob, dim=1).cpu().tolist()
                 pmax = prob.max(dim=1).values.cpu().tolist()
-            del x, logits, prob
+            del x, xb, logits, prob
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()
@@ -277,10 +249,9 @@ def paginate(total, page_size):
 
 st.title("Driver Fatigue/Drunk/Distraction Detection 🚗")
 
-with st.spinner("Loading models..."):
-    model_video, model_img = load_models(MODEL_PATH, num_classes=len(LABEL_NAMES), device=DEVICE)
-    warmup_model(model_video, DEVICE, seq_len=SEQ_LEN, img_size=IMG_SIZE, is_video=True)
-    warmup_model(model_img, DEVICE, seq_len=SEQ_LEN, img_size=IMG_SIZE, is_video=False)
+with st.spinner("Loading model..."):
+    model = load_model(MODEL_PATH, num_classes=len(LABEL_NAMES), device=DEVICE)
+    warmup_model(model, DEVICE, seq_len=SEQ_LEN, img_size=IMG_SIZE)
 
 uploaded_files = st.file_uploader(
     "Upload images and/or videos",
@@ -325,7 +296,7 @@ if uploaded_files:
 
 if new_image_entries:
     st.session_state.images_page = 1
-    predict_images_in_batches(new_image_entries, model_img)
+    predict_images_in_batches(new_image_entries, model)
 
 if new_video_entries:
     st.session_state.images_page = 1
@@ -335,7 +306,7 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        result_path = predict_video_voted(model_video, video_path, LABEL_NAMES, DEVICE)
+        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         st.session_state.video_order.insert(0, key)
         vprog.progress(i/len(new_video_entries))
