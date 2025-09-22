@@ -246,6 +246,8 @@ if uploaded_files:
                 z.extractall(tmpdir)
             for root, _, files in os.walk(tmpdir):
                 for fname in files:
+                    if fname.startswith("._"):
+                        continue
                     path = os.path.join(root, fname)
                     ext = os.path.splitext(fname.lower())[1]
                     with open(path, "rb") as fb:
