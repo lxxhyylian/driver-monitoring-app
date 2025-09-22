@@ -207,14 +207,10 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     os.remove(out_path)
     return final_out
 
-def predict_video_realtime(model, video_path, label_names, device, seq_len=SEQ_LEN, step=STEP, img_size=IMG_SIZE, k=5):
+def preview_video_realtime(model, video_path, label_names, device, seq_len=30, step=30, img_size=256):
     tfm = get_transform(img_size)
     cap = cv2.VideoCapture(video_path)
-    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
     window_buf = []
-    prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
-    last_prob_vec = None
-
     placeholder = st.empty()
 
     while True:
@@ -228,71 +224,49 @@ def predict_video_realtime(model, video_path, label_names, device, seq_len=SEQ_L
             batch = torch.stack(tens, dim=1).to(device)
             with torch.no_grad():
                 logits = model(batch)
-                prob_vec = torch.softmax(logits, dim=1)[0].detach().cpu().numpy()
-            last_prob_vec = prob_vec
-            label_deque.append(int(np.argmax(prob_vec)))
-            prob_deque.append(prob_vec)
-            vals, counts = np.unique(label_deque, return_counts=True)
-            voted_idx = int(vals[np.argmax(counts)])
-            conf = float(last_prob_vec[voted_idx]) if last_prob_vec is not None else 0.0
-            text = f"{label_names[voted_idx]} ({conf:.2f})"
+                prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
+            pred_idx = int(np.argmax(prob_vec))
+            conf = float(prob_vec[pred_idx])
+            text = f"{label_names[pred_idx]} ({conf:.2f})"
+
             for f in window_buf[:step]:
-                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3, cv2.LINE_AA)
-                rgb_f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
-                placeholder.image(rgb_f, channels="RGB")
+                cv2.putText(f, text, (30,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                placeholder.image(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), channels="RGB")
+
             window_buf = window_buf[step:]
     cap.release()
 
-def predict_video_in_chunks(model, video_path, label_names, device, chunk_ratio=0.5, seq_len=30, img_size=256):
+def export_full_video(model, video_path, label_names, device, seq_len=30, step=30, img_size=256):
     tfm = get_transform(img_size)
     cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
-    chunk_size = int(total_frames * chunk_ratio)
-
-    chunks = []
-    frames = []
-    frame_idx = 0
+    out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    writer = imageio.get_writer(out_file.name, fps=fps, macro_block_size=None)
+    window_buf = []
 
     while True:
         ok, fr = cap.read()
         if not ok:
             break
-        frames.append(fr)
-        frame_idx += 1
+        window_buf.append(fr)
+        if len(window_buf) == seq_len:
+            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
+            tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
+            batch = torch.stack(tens, dim=1).to(device)
+            with torch.no_grad():
+                logits = model(batch)
+                prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
+            pred_idx = int(np.argmax(prob_vec))
+            conf = float(prob_vec[pred_idx])
+            text = f"{label_names[pred_idx]} ({conf:.2f})"
 
-        if frame_idx % chunk_size == 0 or frame_idx == total_frames:
-            tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-            out_path = tmp_out.name
-            writer = imageio.get_writer(out_path, fps=fps, macro_block_size=None)
-
-            window_buf = deque(maxlen=seq_len)
-
-            for f in frames:
-                window_buf.append(f)
-                if len(window_buf) == seq_len:
-                    rgb = [cv2.cvtColor(x, cv2.COLOR_BGR2RGB) for x in window_buf]
-                    tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
-                    batch = torch.stack(tens, dim=1).to(device)
-                    with torch.no_grad():
-                        logits = model(batch)
-                        prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
-
-                    pred_idx = int(np.argmax(prob_vec))
-                    conf = float(prob_vec[pred_idx])
-                    text = f"{label_names[pred_idx]} ({conf:.2f})"
-
-                    disp = window_buf[-1].copy()
-                    cv2.putText(disp, text, (30, 50),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
-                    writer.append_data(cv2.cvtColor(disp, cv2.COLOR_BGR2RGB))
-
-            writer.close()
-            chunks.append(out_path)
-            frames = []
-
+            for f in window_buf[:step]:
+                cv2.putText(f, text, (30,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
+                writer.append_data(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
+            window_buf = window_buf[step:]
     cap.release()
-    return chunks
+    writer.close()
+    return out_file.name
 
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
@@ -434,9 +408,18 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
-        st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
-        st.session_state.video_order.insert(0, key)
+        # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
+        # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
+        # st.session_state.video_order.insert(0, key)
+
+        st.info(f"Previewing {name}...")
+        preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
+
+        if st.button(f"Download processed {name}"):
+            out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
+            with open(out_path, "rb") as f:
+                st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
+
         # predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
         # chunks = predict_video_in_chunks(model, video_path, LABEL_NAMES, DEVICE, chunk_ratio=0.5)
         # for c in chunks:
