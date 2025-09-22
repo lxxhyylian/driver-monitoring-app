@@ -319,7 +319,7 @@ if st.session_state.image_order:
         for idx, key in enumerate(row):
             item = st.session_state.processed_images[key]
             img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-            cols[idx].image(img, use_column_width=True)
+            cols[idx].image(img, use_container_width=True)
             cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
             cols[idx].markdown(cap, unsafe_allow_html=True)
 
