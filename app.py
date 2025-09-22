@@ -409,16 +409,16 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
-        # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
-        # st.session_state.video_order.insert(0, key)
-        # if st.button(f"Download processed {name}"):
-        #     out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
-        #     with open(out_path, "rb") as f:
-        #         st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
+        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
+        st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
+        st.session_state.video_order.insert(0, key)
+        if st.button(f"Download processed {name}"):
+            out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
+            with open(out_path, "rb") as f:
+                st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
 
-        st.info(f"Previewing {name}...")
-        preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
+        # st.info(f"Previewing {name}...")
+        # preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
 
 
         # predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
