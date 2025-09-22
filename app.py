@@ -276,6 +276,20 @@ def predict_images_in_batches(entries, model):
                 st.session_state.processed_images[key] = {"name": name, "bytes": b, "pred": int(y), "prob": float(s)}
                 st.session_state.image_order.insert(0, key)
         i += BATCH_SIZE
+    MAX_IMAGES = 10
+    for (key, name, b), y, s in zip(valids, pred, pmax):
+        st.session_state.processed_images[key] = {
+            "name": name,
+            "bytes": b,
+            "pred": int(y),
+            "prob": float(s)
+        }
+        st.session_state.image_order.insert(0, key)
+
+        if len(st.session_state.image_order) > MAX_IMAGES:
+            oldest = st.session_state.image_order.pop()
+            st.session_state.processed_images.pop(oldest, None)
+
 
 def paginate(total, page_size):
     total_pages = max(1, math.ceil(total / page_size))
