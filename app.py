@@ -39,7 +39,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
         face_area = bw * bh
         st.write(face_area)
-        if face_area >= 0.94:
+        if face_area >= 0.5:
             return img
         x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
