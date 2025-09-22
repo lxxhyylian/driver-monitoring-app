@@ -292,7 +292,7 @@ if st.session_state.image_order:
     for idx, key in enumerate(keys):
         item = st.session_state.processed_images[key]
         img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        cap = f"<span style='font-size:22px;color:red'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
+        cap = f"<span style='font-size:22px'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
         cols[idx % len(cols)].markdown(cap, unsafe_allow_html=True)
         cols[idx % len(cols)].image(img, width="stretch")
 
@@ -304,4 +304,4 @@ if st.session_state.video_order:
         st.video(item["result_path"])
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
-    st.info("Upload image, video, or a zipped folder")
+    st.info("Upload image or video")
