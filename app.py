@@ -29,7 +29,7 @@ def check_and_cleanup(threshold: float = 0.85):
 
 mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
-def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.6):
+def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.7):
     h, w = img.shape[:2]
     if h > w * 1.3:
         return img
