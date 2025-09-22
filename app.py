@@ -22,7 +22,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         det = result.detections[0]
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
-        x1 = int((x - padding_ratio * bw) * w)
+        x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
         x2 = int((x + bw + padding_ratio * bw) * w)
         y2 = int((y + bh + padding_ratio * bh) * h)
@@ -30,9 +30,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         x2, y2 = min(w, x2), min(h, y2)
         face_crop = img[y1:y2, x1:x2]
         return cv2.resize(face_crop, (crop_size, crop_size))
-    if h > crop_size or w > crop_size:
-        return cv2.resize(img, (crop_size, crop_size))
-    return cv2.resize(img, (crop_size, crop_size))
+    return img
 
 class SEBlock(nn.Module):
     def __init__(self, channels, reduction=16):
