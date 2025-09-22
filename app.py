@@ -237,38 +237,6 @@ def preview_video_realtime(model, video_path, label_names, device, seq_len=30, s
             window_buf = window_buf[step:]
     cap.release()
 
-def export_full_video(model, video_path, label_names, device, seq_len=30, step=30, img_size=256):
-    tfm = get_transform(img_size)
-    cap = cv2.VideoCapture(video_path)
-    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
-    out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    writer = imageio.get_writer(out_file.name, fps=fps, macro_block_size=None)
-    window_buf = []
-
-    while True:
-        ok, fr = cap.read()
-        if not ok:
-            break
-        window_buf.append(fr)
-        if len(window_buf) == seq_len:
-            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
-            tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
-            batch = torch.stack(tens, dim=1).to(device)
-            with torch.no_grad():
-                logits = model(batch)
-                prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
-            pred_idx = int(np.argmax(prob_vec))
-            conf = float(prob_vec[pred_idx])
-            text = f"{label_names[pred_idx]} ({conf:.2f})"
-
-            for f in window_buf[:step]:
-                cv2.putText(f, text, (30,50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
-                writer.append_data(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
-            window_buf = window_buf[step:]
-    cap.release()
-    writer.close()
-    return out_file.name
-
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
     i = 0
@@ -298,23 +266,20 @@ def predict_images_in_batches(entries, model):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()
+            MAX_IMAGES = 10
             for (key, name, b), y, s in zip(valids, pred, pmax):
-                st.session_state.processed_images[key] = {"name": name, "bytes": b, "pred": int(y), "prob": float(s)}
+                st.session_state.processed_images[key] = {
+                    "name": name,
+                    "bytes": b,
+                    "pred": int(y),
+                    "prob": float(s)
+                }
                 st.session_state.image_order.insert(0, key)
-        i += BATCH_SIZE
-    MAX_IMAGES = 10
-    for (key, name, b), y, s in zip(valids, pred, pmax):
-        st.session_state.processed_images[key] = {
-            "name": name,
-            "bytes": b,
-            "pred": int(y),
-            "prob": float(s)
-        }
-        st.session_state.image_order.insert(0, key)
 
-        if len(st.session_state.image_order) > MAX_IMAGES:
-            oldest = st.session_state.image_order.pop()
-            st.session_state.processed_images.pop(oldest, None)
+                if len(st.session_state.image_order) > MAX_IMAGES:
+                    oldest = st.session_state.image_order.pop()
+                    st.session_state.processed_images.pop(oldest, None)
+        i += BATCH_SIZE
 
 
 def paginate(total, page_size):
@@ -412,10 +377,15 @@ if new_video_entries:
         result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         st.session_state.video_order.insert(0, key)
-        if st.button(f"Download processed {name}"):
-            out_path = export_full_video(model, video_path, LABEL_NAMES, DEVICE)
-            with open(out_path, "rb") as f:
-                st.download_button("Download Processed Video", f, file_name=f"processed_{name}")
+        st.video(result_path)
+
+        with open(result_path, "rb") as f:
+            st.download_button(
+                label=f"⬇️ Download processed {name}",
+                data=f,
+                file_name=f"processed_{name}",
+                mime="video/mp4"
+            )
 
         # st.info(f"Previewing {name}...")
         # preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
