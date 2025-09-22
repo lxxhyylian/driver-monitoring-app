@@ -61,16 +61,14 @@ class AttentionPooling(nn.Module):
 class CNNTransformer(nn.Module):
     def __init__(self, num_classes, seq_len=30, hidden_dim=256, num_heads=4, num_layers=1, pretrained=True, freeze_until=10):
         super().__init__()
-        mobilenet = models.mobilenet_v2(pretrained=pretrained)
+        mobilenet = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT if pretrained else None)
         self.cnn = mobilenet.features
-        child_counter = 0
-        for child in self.cnn.children():
-            if child_counter < freeze_until:
-                for param in child.parameters():
-                    param.requires_grad = False
-            child_counter += 1
+        for i, child in enumerate(self.cnn.children()):
+            if i < freeze_until:
+                for p in child.parameters():
+                    p.requires_grad = False
         self.head = nn.Sequential(
-            nn.Conv2d(1280, 512, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(1280, 512, 3, 1, 1, bias=False),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             SEBlock(512),
@@ -78,11 +76,8 @@ class CNNTransformer(nn.Module):
         )
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc_in = nn.Linear(512, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=num_heads,
-            dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu"
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        enc_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dim_feedforward=hidden_dim*2, dropout=0.3, activation="gelu")
+        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
         self.attn_pool = AttentionPooling(hidden_dim)
         self.fc_out = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
@@ -99,8 +94,7 @@ class CNNTransformer(nn.Module):
         feats = self.fc_in(feats)
         feats = self.transformer(feats)
         feats = self.attn_pool(feats)
-        out = self.fc_out(feats)
-        return out
+        return self.fc_out(feats)
 
 MODEL_PATH = "best_model_epoch18.pth"
 LABEL_NAMES = ["safe_drive","fatigue","drunk","drinking","hair_and_makeup","phonecall","talking_to_passenger"]
@@ -111,7 +105,7 @@ VID_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
 IMG_SIZE = 256
 SEQ_LEN = 30
 STEP = 30
-BATCH_SIZE = 8
+BATCH_SIZE = 16
 PAGE_SIZE = 3
 
 if "processed_images" not in st.session_state:
@@ -208,6 +202,7 @@ def predict_images_in_batches(entries, model):
                 img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
                 cropped = crop_face_mediapipe(img_cv, crop_size=IMG_SIZE)
                 img_proc = Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
+                img_proc = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
                 imgs.append(tfm(img_proc).unsqueeze(0))
                 valids.append((key, name, b))
             except Exception:
@@ -335,3 +330,4 @@ if st.session_state.video_order:
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
     st.info("Upload image or video")
+s
