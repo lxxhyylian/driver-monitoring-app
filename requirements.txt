@@ -9,4 +9,3 @@ imageio
 imageio-ffmpeg==0.6.0
 mediapipe==0.10.14
 psutil
-gc
