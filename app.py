@@ -286,15 +286,18 @@ if new_video_entries:
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
-    start, end = paginate(len(st.session_state.image_order), PAGE_SIZE)
+    start, end = paginate(len(st.session_state.image_order), 6)
     keys = st.session_state.image_order[start:end]
-    cols = st.columns(4 if len(keys) == 4 else len(keys) if len(keys) > 0 else 1)
-    for idx, key in enumerate(keys):
-        item = st.session_state.processed_images[key]
-        img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        cap = f"<span style='font-size:20px'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
-        cols[idx % len(cols)].markdown(cap, unsafe_allow_html=True)
-        cols[idx % len(cols)].image(img, width="stretch")
+
+    rows = [keys[i:i+3] for i in range(0, len(keys), 3)]
+    for row in rows:
+        cols = st.columns(3)
+        for idx, key in enumerate(row):
+            item = st.session_state.processed_images[key]
+            img = Image.open(BytesIO(item["bytes"])).convert("RGB")
+            cols[idx].image(img, use_column_width=True)
+            cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
+            cols[idx].markdown(cap, unsafe_allow_html=True)
 
 if st.session_state.video_order:
     st.subheader(f"Videos ({len(st.session_state.video_order)})")
