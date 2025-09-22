@@ -358,12 +358,11 @@ if uploaded_files:
 
 if new_image_entries:
     st.session_state.images_page = 1
-    check_and_cleanup()
     predict_images_in_batches(new_image_entries, model)
+    check_and_cleanup(0.6)
 
 if new_video_entries:
     st.session_state.images_page = 1
-    check_and_cleanup()
     vprog = st.progress(0.0)
     for i, (key, name, b) in enumerate(new_video_entries, 1):
         suffix = os.path.splitext(name)[1]
@@ -376,6 +375,7 @@ if new_video_entries:
         predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
         vprog.progress(i/len(new_video_entries))
     vprog.empty()
+    check_and_cleanup(0.6)
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
