@@ -23,7 +23,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
         face_area = bw * bh
-        if face_area >= 0.9:
+        if face_area >= 0.6:
             return img
         x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
@@ -227,17 +227,17 @@ def predict_images_in_batches(entries, model):
 def paginate(total, page_size):
     total_pages = max(1, math.ceil(total / page_size))
     col1, col2, col3 = st.columns([1,1,6])
+
     with col1:
-        prev = st.button("◀ Prev", disabled=st.session_state.images_page <= 1)
+        if st.button("◀ Prev", disabled=st.session_state.images_page <= 1, key="prev_page"):
+            st.session_state.images_page = max(1, st.session_state.images_page - 1)
+
     with col2:
-        nxt = st.button("Next ▶", disabled=st.session_state.images_page >= total_pages)
+        if st.button("Next ▶", disabled=st.session_state.images_page >= total_pages, key="next_page"):
+            st.session_state.images_page = min(total_pages, st.session_state.images_page + 1)
+
     st.caption(f"Page {st.session_state.images_page}/{total_pages}")
-    if prev:
-        st.session_state.images_page = max(1, st.session_state.images_page - 1)
-        st.rerun()
-    if nxt:
-        st.session_state.images_page = min(total_pages, st.session_state.images_page + 1)
-        st.rerun()
+
     start = (st.session_state.images_page - 1) * page_size
     end = min(total, start + page_size)
     return start, end
