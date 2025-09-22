@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torchvision.transforms as transforms
-import cv2, os, tempfile, math, hashlib, gc
+import cv2, os, tempfile, math, hashlib, gc, zipfile
 import numpy as np
 from collections import deque
 from PIL import Image
@@ -227,7 +227,7 @@ with st.spinner("Loading model..."):
 
 uploaded_files = st.file_uploader(
     "Upload images and/or videos",
-    type=list(set([*IMG_EXTS, *VID_EXTS])),
+    type=list(set([*IMG_EXTS, *VID_EXTS, "zip"])),
     accept_multiple_files=True
 )
 
@@ -238,7 +238,26 @@ if uploaded_files:
     for f in uploaded_files:
         key = file_key(f)
         lower = f.name.lower()
-        if lower.endswith(IMG_EXTS):
+        if lower.endswith(".zip"):
+            tmpdir = tempfile.mkdtemp()
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+            tfile.write(f.getvalue())
+            with zipfile.ZipFile(tfile.name, "r") as z:
+                z.extractall(tmpdir)
+            for root, _, files in os.walk(tmpdir):
+                for fname in files:
+                    path = os.path.join(root, fname)
+                    ext = fname.lower()
+                    with open(path, "rb") as fb:
+                        b = fb.read()
+                    k = f"{fname}|{hashlib.md5(b).hexdigest()}"
+                    if ext.endswith(IMG_EXTS):
+                        if k not in st.session_state.processed_images:
+                            new_image_entries.append((k, fname, b))
+                    elif ext.endswith(VID_EXTS):
+                        if k not in st.session_state.processed_videos:
+                            new_video_entries.append((k, fname, b))
+        elif lower.endswith(IMG_EXTS):
             if key not in st.session_state.processed_images:
                 new_image_entries.append((key, f.name, f.getvalue()))
         elif lower.endswith(VID_EXTS):
@@ -271,8 +290,9 @@ if st.session_state.image_order:
     for idx, key in enumerate(keys):
         item = st.session_state.processed_images[key]
         img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        cap = f"Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})"
-        cols[idx % len(cols)].image(img, caption=cap, width="stretch")
+        cap = f"<span style='font-size:22px;color:red'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
+        cols[idx % len(cols)].markdown(cap, unsafe_allow_html=True)
+        cols[idx % len(cols)].image(img, width="stretch")
 
 if st.session_state.video_order:
     st.subheader(f"Videos ({len(st.session_state.video_order)})")
@@ -282,4 +302,4 @@ if st.session_state.video_order:
         st.video(item["result_path"])
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
-    st.info("Upload image or video")
+    st.info("Upload image, video, or a zipped folder")
