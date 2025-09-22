@@ -1,3 +1,6 @@
+import os
+os.environ["STREAMLIT_SERVER_FILEWATCHERTYPE"] = "none"
+
 import streamlit as st
 import torch
 import torch.nn as nn
