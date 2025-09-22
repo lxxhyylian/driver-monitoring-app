@@ -380,15 +380,6 @@ if new_video_entries:
         result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         st.session_state.video_order.insert(0, key)
-        st.video(result_path)
-
-        with open(result_path, "rb") as f:
-            st.download_button(
-                label=f"⬇️ Download processed {name}",
-                data=f,
-                file_name=f"processed_{name}",
-                mime="video/mp4"
-            )
 
         # st.info(f"Previewing {name}...")
         # preview_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
