@@ -23,8 +23,8 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
         face_area = bw * bh
-        if face_area >= 0.77:
-            print(face_area)
+        print(face_area)
+        if face_area >= 0.78:
             return img
         x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
