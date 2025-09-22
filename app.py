@@ -247,14 +247,14 @@ if uploaded_files:
             for root, _, files in os.walk(tmpdir):
                 for fname in files:
                     path = os.path.join(root, fname)
-                    ext = fname.lower()
+                    ext = os.path.splitext(fname.lower())[1]
                     with open(path, "rb") as fb:
                         b = fb.read()
                     k = f"{fname}|{hashlib.md5(b).hexdigest()}"
-                    if ext.endswith(IMG_EXTS):
+                    if ext in IMG_EXTS:
                         if k not in st.session_state.processed_images:
                             new_image_entries.append((k, fname, b))
-                    elif ext.endswith(VID_EXTS):
+                    elif ext in VID_EXTS:
                         if k not in st.session_state.processed_videos:
                             new_video_entries.append((k, fname, b))
         elif lower.endswith(IMG_EXTS):
