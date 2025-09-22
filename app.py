@@ -443,7 +443,6 @@ if new_video_entries:
             st.video(c)
         vprog.progress(i/len(new_video_entries))
     vprog.empty()
-    check_and_cleanup()
 
 if st.session_state.image_order:
     st.subheader(f"Images ({len(st.session_state.image_order)})")
@@ -453,11 +452,12 @@ if st.session_state.image_order:
     for row in rows:
         cols = st.columns(3)
         for idx, key in enumerate(row):
-            item = st.session_state.processed_images[key]
-            img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-            cols[idx].image(img, use_container_width=True)
-            cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
-            cols[idx].markdown(cap, unsafe_allow_html=True)
+            if key in st.session_state.processed_images:
+                item = st.session_state.processed_images[key]
+                img = Image.open(BytesIO(item["bytes"])).convert("RGB")
+                cols[idx].image(img, use_container_width=True)
+                cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
+                cols[idx].markdown(cap, unsafe_allow_html=True)
 
 
 if st.session_state.video_order:
