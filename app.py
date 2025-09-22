@@ -29,8 +29,10 @@ def check_and_cleanup(threshold: float = 0.85):
 
 mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
-def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
+def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.6):
     h, w = img.shape[:2]
+    if h > w * 1.3:
+        return img
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     result = mp_face.process(img_rgb)
     if result.detections:
@@ -206,6 +208,42 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     os.remove(out_path)
     return final_out
 
+def predict_video_realtime(model, video_path, label_names, device, seq_len=SEQ_LEN, step=STEP, img_size=IMG_SIZE, k=5):
+    tfm = get_transform(img_size)
+    cap = cv2.VideoCapture(video_path)
+    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
+    window_buf = []
+    prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
+    last_prob_vec = None
+
+    placeholder = st.empty()
+
+    while True:
+        ok, fr = cap.read()
+        if not ok:
+            break
+        window_buf.append(fr)
+        if len(window_buf) == seq_len:
+            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
+            tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
+            batch = torch.stack(tens, dim=1).to(device)
+            with torch.no_grad():
+                logits = model(batch)
+                prob_vec = torch.softmax(logits, dim=1)[0].detach().cpu().numpy()
+            last_prob_vec = prob_vec
+            label_deque.append(int(np.argmax(prob_vec)))
+            prob_deque.append(prob_vec)
+            vals, counts = np.unique(label_deque, return_counts=True)
+            voted_idx = int(vals[np.argmax(counts)])
+            conf = float(last_prob_vec[voted_idx]) if last_prob_vec is not None else 0.0
+            text = f"{label_names[voted_idx]} ({conf:.2f})"
+            for f in window_buf[:step]:
+                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3, cv2.LINE_AA)
+                rgb_f = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
+                placeholder.image(rgb_f, channels="RGB")
+            window_buf = window_buf[step:]
+    cap.release()
+
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
     i = 0
@@ -333,9 +371,10 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
-        st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
-        st.session_state.video_order.insert(0, key)
+        # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
+        # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
+        # st.session_state.video_order.insert(0, key)
+        predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
         vprog.progress(i/len(new_video_entries))
     vprog.empty()
 
