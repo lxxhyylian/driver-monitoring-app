@@ -5,6 +5,6 @@ opencv-python-headless
 Pillow
 numpy
 moviepy==1.0.3
-imageio-ffmpeg==0.6.0
-mediapipe
 imageio
+imageio-ffmpeg==0.6.0
+mediapipe==0.10.14
