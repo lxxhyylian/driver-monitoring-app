@@ -12,6 +12,29 @@ from moviepy.editor import VideoFileClip
 import imageio
 from io import BytesIO
 
+import mediapipe as mp
+mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
+    h, w = img.shape[:2]
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    result = mp_face.process(img_rgb)
+
+    if result.detections:
+        det = result.detections[0]
+        box = det.location_data.relative_bounding_box
+        x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
+        x1 = int((x - padding_ratio * bw) * w)
+        y1 = int((y - padding_ratio * bh) * h)
+        x2 = int((x + bw + padding_ratio * bw) * w)
+        y2 = int((y + bh + padding_ratio * bh) * h)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        face_crop = img[y1:y2, x1:x2]
+        return cv2.resize(face_crop, (crop_size, crop_size))
+    return cv2.resize(img, (crop_size, crop_size))
+
+
 class SEBlock(nn.Module):
     def __init__(self, channels, reduction=16):
         super().__init__()
@@ -177,10 +200,11 @@ def predict_images_in_batches(entries):
         valids = []
         for key, name, b in sub:
             try:
-                img = Image.open(BytesIO(b))
-                img.verify()
                 img = Image.open(BytesIO(b)).convert("RGB")
-                imgs.append(tfm(img).unsqueeze(0))
+                img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                cropped = crop_face_mediapipe(img_cv, crop_size=IMG_SIZE)
+                img_proc = Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
+                imgs.append(tfm(img_proc).unsqueeze(0))
                 valids.append((key, name, b))
             except Exception:
                 st.warning(f"Skipped invalid image: {name}")
