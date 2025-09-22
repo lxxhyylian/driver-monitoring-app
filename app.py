@@ -434,13 +434,13 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        # result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
-        # st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
-        # st.session_state.video_order.insert(0, key)
+        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
+        st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
+        st.session_state.video_order.insert(0, key)
         # predict_video_realtime(model, video_path, LABEL_NAMES, DEVICE)
-        chunks = predict_video_in_chunks(model, video_path, LABEL_NAMES, DEVICE, chunk_ratio=0.5)
-        for c in chunks:
-            st.video(c)
+        # chunks = predict_video_in_chunks(model, video_path, LABEL_NAMES, DEVICE, chunk_ratio=0.5)
+        # for c in chunks:
+        #     st.video(c)
         vprog.progress(i/len(new_video_entries))
     vprog.empty()
 
