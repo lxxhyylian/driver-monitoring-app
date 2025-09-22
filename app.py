@@ -16,21 +16,33 @@ mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detec
 
 def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
     h, w = img.shape[:2]
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    min_dim = min(h, w)
+    cx, cy = w // 2, h // 2
+    x1_sq = max(cx - min_dim // 2, 0)
+    y1_sq = max(cy - min_dim // 2, 0)
+    x2_sq = x1_sq + min_dim
+    y2_sq = y1_sq + min_dim
+    square_crop = img[y1_sq:y2_sq, x1_sq:x2_sq]
+    sc_h, sc_w = square_crop.shape[:2]
+
+    img_rgb = cv2.cvtColor(square_crop, cv2.COLOR_BGR2RGB)
     result = mp_face.process(img_rgb)
+
     if result.detections:
         det = result.detections[0]
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
-        x1 = int((x - padding_ratio * 1.2 * bw) * w)
-        y1 = int((y - padding_ratio * bh) * h)
-        x2 = int((x + bw + padding_ratio * bw) * w)
-        y2 = int((y + bh + padding_ratio * bh) * h)
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        face_crop = img[y1:y2, x1:x2]
-        return cv2.resize(face_crop, (crop_size, crop_size))
-    return img
+
+        x1 = int((x - padding_ratio * 1.2 * bw) * sc_w)
+        y1 = int((y - padding_ratio * bh) * sc_h)
+        x2 = int((x + bw + padding_ratio * bw) * sc_w)
+        y2 = int((y + bh + padding_ratio * bh) * sc_h)
+
+        if x1 >= 0 and y1 >= 0 and x2 <= sc_w and y2 <= sc_h and (x2 - x1) >= 64 and (y2 - y1) >= 64:
+            crop = square_crop[y1:y2, x1:x2]
+            return cv2.resize(crop, (crop_size, crop_size))
+
+    return cv2.resize(square_crop, (crop_size, crop_size))
 
 class SEBlock(nn.Module):
     def __init__(self, channels, reduction=16):
