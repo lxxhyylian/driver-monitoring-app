@@ -201,7 +201,6 @@ def predict_images_in_batches(entries, model):
                 img = Image.open(BytesIO(b)).convert("RGB")
                 img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
                 cropped = crop_face_mediapipe(img_cv, crop_size=IMG_SIZE)
-                img_proc = Image.fromarray(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
                 img_proc = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
                 imgs.append(tfm(img_proc).unsqueeze(0))
                 valids.append((key, name, b))
@@ -330,4 +329,3 @@ if st.session_state.video_order:
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
     st.info("Upload image or video")
-s
