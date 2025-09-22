@@ -85,7 +85,7 @@ SEQ_LEN = 30
 STEP = 30
 VOTE = "hard"
 BATCH_SIZE = 16
-PAGE_SIZE = 4
+PAGE_SIZE = 3
 
 if "processed_images" not in st.session_state:
     st.session_state.processed_images = {}
@@ -292,7 +292,7 @@ if st.session_state.image_order:
     for idx, key in enumerate(keys):
         item = st.session_state.processed_images[key]
         img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-        cap = f"<span style='font-size:22px'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
+        cap = f"<span style='font-size:20px'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</span>"
         cols[idx % len(cols)].markdown(cap, unsafe_allow_html=True)
         cols[idx % len(cols)].image(img, width="stretch")
 
