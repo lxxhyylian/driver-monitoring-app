@@ -23,7 +23,7 @@ def crop_face_mediapipe(img, crop_size=256, padding_ratio=0.4):
         box = det.location_data.relative_bounding_box
         x, y, bw, bh = box.xmin, box.ymin, box.width, box.height
         face_area = bw * bh
-        if face_area >= 0.79:
+        if face_area >= 0.85:
             return img
         x1 = int((x - padding_ratio * 1.2 * bw) * w)
         y1 = int((y - padding_ratio * bh) * h)
@@ -253,6 +253,20 @@ uploaded_files = st.file_uploader(
     type=list(set([*IMG_EXTS, *VID_EXTS, "zip"])),
     accept_multiple_files=True
 )
+current_keys = set()
+if uploaded_files:
+    for f in uploaded_files:
+        k = file_key(f)
+        current_keys.add(k)
+removed_keys = set(st.session_state.processed_images.keys()) - current_keys
+for k in removed_keys:
+    st.session_state.processed_images.pop(k, None)
+    if k in st.session_state.image_order:
+        st.session_state.image_order.remove(k)
+gc.collect()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+
 
 new_image_entries = []
 new_video_entries = []
@@ -312,15 +326,6 @@ if st.session_state.image_order:
     start, end = paginate(len(st.session_state.image_order), 6)
     keys = st.session_state.image_order[start:end]
     rows = [keys[i:i+3] for i in range(0, len(keys), 3)]
-    # for row in rows:
-    #     cols = st.columns(3)
-    #     for idx, key in enumerate(row):
-    #         item = st.session_state.processed_images[key]
-    #         img = Image.open(BytesIO(item["bytes"])).convert("RGB")
-    #         cols[idx].image(img, use_container_width=True)
-    #         cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
-    #         cols[idx].markdown(cap, unsafe_allow_html=True)
-
     for row in rows:
         cols = st.columns(3)
         for idx, key in enumerate(row):
@@ -329,15 +334,6 @@ if st.session_state.image_order:
             cols[idx].image(img, use_container_width=True)
             cap = f"<div style='text-align:center;font-size:18px;'>Prediction: {LABEL_NAMES[item['pred']]} ({item['prob']:.2f})</div>"
             cols[idx].markdown(cap, unsafe_allow_html=True)
-
-            # Nút xoá
-            if cols[idx].button("❌", key=f"delete_{key}"):
-                st.session_state.image_order.remove(key)
-                del st.session_state.processed_images[key]
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                st.experimental_rerun()
 
 
 if st.session_state.video_order:
