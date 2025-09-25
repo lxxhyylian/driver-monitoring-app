@@ -184,8 +184,9 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
             break
         window_buf.append(fr)
         if len(window_buf) == seq_len:
-            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
+            rgb = [cv2.cvtColor(crop_face_mediapipe(f, crop_size=img_size), cv2.COLOR_BGR2RGB) for f in window_buf]
             tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
+
             batch = torch.stack(tens, dim=1).to(device)
             with torch.no_grad():
                 logits = model(batch)
