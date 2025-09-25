@@ -208,7 +208,7 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     # clip = VideoFileClip(out_path)
     # clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
     # clip.close()
-    os.remove(out_path)
+    # os.remove(out_path)
     return final_out
 
 def predict_images_in_batches(entries, model):
@@ -296,7 +296,7 @@ for k in removed_keys:
     st.session_state.processed_images.pop(k, None)
     if k in st.session_state.image_order:
         st.session_state.image_order.remove(k)
-        
+
 removed_video_keys = set(st.session_state.processed_videos.keys()) - current_keys
 for k in removed_video_keys:
     item = st.session_state.processed_videos.pop(k, None)
@@ -396,7 +396,10 @@ if st.session_state.video_order:
     for idx, key in enumerate(st.session_state.video_order, 1):
         item = st.session_state.processed_videos[key]
         st.write(f"{idx}. {item['name']}")
-        st.video(item["result_path"])
+        if os.path.exists(item["result_path"]):
+            st.video(item["result_path"])
+        else:
+            st.warning(f"Video file not found: {item['name']}")
 
 if not uploaded_files and not st.session_state.image_order and not st.session_state.video_order:
     st.info("Upload image or video")
