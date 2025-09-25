@@ -296,6 +296,17 @@ for k in removed_keys:
     st.session_state.processed_images.pop(k, None)
     if k in st.session_state.image_order:
         st.session_state.image_order.remove(k)
+        
+removed_video_keys = set(st.session_state.processed_videos.keys()) - current_keys
+for k in removed_video_keys:
+    item = st.session_state.processed_videos.pop(k, None)
+    if item and "result_path" in item and os.path.exists(item["result_path"]):
+        try:
+            os.remove(item["result_path"])   # xóa file tạm đã encode
+        except Exception as e:
+            st.warning(f"Could not remove temp video: {e}")
+    if k in st.session_state.video_order:
+        st.session_state.video_order.remove(k)
 gc.collect()
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
