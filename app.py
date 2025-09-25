@@ -205,10 +205,10 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     cap.release()
     writer.close()
     final_out = out_path.replace(".mp4", "_final.mp4")
-    # clip = VideoFileClip(out_path)
-    # clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
-    # clip.close()
-    # os.remove(out_path)
+    clip = VideoFileClip(out_path)
+    clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
+    clip.close()
+    os.remove(out_path)
     return final_out
 
 def predict_images_in_batches(entries, model):
