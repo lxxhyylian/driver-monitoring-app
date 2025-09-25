@@ -205,41 +205,11 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     cap.release()
     writer.close()
     final_out = out_path.replace(".mp4", "_final.mp4")
-    clip = VideoFileClip(out_path)
-    clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
-    clip.close()
+    # clip = VideoFileClip(out_path)
+    # clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
+    # clip.close()
     os.remove(out_path)
     return final_out
-
-def preview_video_realtime(model, video_path, label_names, device, seq_len=30, step=30, img_size=256, frame_skip=3):
-    tfm = get_transform(img_size)
-    cap = cv2.VideoCapture(video_path)
-    window_buf = []
-    placeholder = st.empty()
-    frame_count = 0
-    while True:
-        ok, fr = cap.read()
-        if not ok:
-            break
-        frame_count += 1
-        if frame_count % frame_skip != 0:
-            continue
-        window_buf.append(fr)
-        if len(window_buf) == seq_len:
-            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
-            tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
-            batch = torch.stack(tens, dim=1).to(device)
-            with torch.no_grad():
-                logits = model(batch)
-                prob_vec = torch.softmax(logits, dim=1)[0].cpu().numpy()
-            pred_idx = int(np.argmax(prob_vec))
-            conf = float(prob_vec[pred_idx])
-            text = f"{label_names[pred_idx]} ({conf:.2f})"
-            for f in window_buf[:step]:
-                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3)
-                placeholder.image(cv2.cvtColor(f, cv2.COLOR_BGR2RGB), channels="RGB")
-            window_buf = window_buf[step:]
-    cap.release()
 
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
@@ -262,7 +232,8 @@ def predict_images_in_batches(entries, model):
             x = torch.cat(imgs, dim=0).to(DEVICE)
             with torch.no_grad():
                 xb = x.unsqueeze(1).expand(-1, SEQ_LEN, -1, -1, -1).contiguous()
-                logits = model(xb)
+                with torch.cuda.amp.autocast():
+                    logits = model(xb)
                 prob = torch.softmax(logits, dim=1)
                 pred = torch.argmax(prob, dim=1).cpu().tolist()
                 pmax = prob.max(dim=1).values.cpu().tolist()
