@@ -175,16 +175,19 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
     tmp_out = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
     out_path = tmp_out.name
     writer = imageio.get_writer(out_path, fps=fps, macro_block_size=None)
+
     window_buf = []
     prob_deque, label_deque = deque(maxlen=k), deque(maxlen=k)
     last_prob_vec = None
+
     while True:
         ok, fr = cap.read()
         if not ok:
             break
         window_buf.append(fr)
+
         if len(window_buf) == seq_len:
-            rgb = [cv2.cvtColor(crop_face_mediapipe(f, crop_size=img_size), cv2.COLOR_BGR2RGB) for f in window_buf]
+            rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in window_buf]
             tens = [tfm(Image.fromarray(x)).unsqueeze(0) for x in rgb]
 
             batch = torch.stack(tens, dim=1).to(device)
@@ -192,24 +195,31 @@ def predict_video_voted(model, video_path, label_names, device, seq_len=SEQ_LEN,
                 logits = model(batch)
                 prob_vec = torch.softmax(logits, dim=1)[0].detach().cpu().numpy()
             last_prob_vec = prob_vec
+
             label_deque.append(int(np.argmax(prob_vec)))
             prob_deque.append(prob_vec)
+
             vals, counts = np.unique(label_deque, return_counts=True)
             voted_idx = int(vals[np.argmax(counts)])
             conf = float(last_prob_vec[voted_idx]) if last_prob_vec is not None else 0.0
+
             text = f"{label_names[voted_idx]} ({conf:.2f})"
             for f in window_buf[:step]:
-                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0,255,0), 3, cv2.LINE_AA)
+                cv2.putText(f, text, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 
+                            1.2, (0,255,0), 3, cv2.LINE_AA)
                 writer.append_data(cv2.cvtColor(f, cv2.COLOR_BGR2RGB))
             window_buf = window_buf[step:]
+
     cap.release()
     writer.close()
+
     final_out = out_path.replace(".mp4", "_final.mp4")
     clip = VideoFileClip(out_path)
     clip.write_videofile(final_out, codec="libx264", audio=False, verbose=False, logger=None)
     clip.close()
     os.remove(out_path)
     return final_out
+
 
 def predict_images_in_batches(entries, model):
     tfm = get_transform(IMG_SIZE)
@@ -302,7 +312,7 @@ for k in removed_video_keys:
     item = st.session_state.processed_videos.pop(k, None)
     if item and "result_path" in item and os.path.exists(item["result_path"]):
         try:
-            os.remove(item["result_path"])   # xóa file tạm đã encode
+            os.remove(item["result_path"])
         except Exception as e:
             st.warning(f"Could not remove temp video: {e}")
     if k in st.session_state.video_order:
