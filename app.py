@@ -370,7 +370,7 @@ if new_video_entries:
         tfile = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         tfile.write(b)
         video_path = tfile.name
-        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE, 90, 30)
+        result_path = predict_video_voted(model, video_path, LABEL_NAMES, DEVICE)
         st.session_state.processed_videos[key] = {"name": name, "result_path": result_path}
         st.session_state.video_order.insert(0, key)
 
